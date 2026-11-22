@@ -1,12 +1,14 @@
 """
-Canlı hareket tanıma.
+Canlı hareket tanıma (+ isteğe bağlı Arduino kontrolü).
 
-    python live.py
+    python live.py                 # sadece ekranda göster
+    python live.py --port COM3     # tanınan hareketleri Arduino'ya da gönder
 
-Bir hareket ancak son 7 karenin çoğunluğunda ve %80+ güvenle görülürse "kabul" edilir.
+Bir hareket ancak son 7 karenin çoğunluğunda ve %90+ güvenle görülürse "kabul" edilir.
 Bu, tek karelik yanlış tahminlerin röleyi/servoyu boşuna tetiklemesini engeller.
 """
 
+import argparse
 import time
 from collections import Counter, deque
 
@@ -18,8 +20,31 @@ from common import create_landmarker, detect_hand, load_classifier, normalize
 WINDOW = 7
 MIN_CONF = 0.9
 
+# Hareket -> Arduino'ya gidecek tek karakterlik komut
+COMMANDS = {
+    "avuc": "A",
+    "yumruk": "Y",
+    "isaret_parmagi": "I",
+    "iki_parmak": "V",
+    "bas_parmak_yukari": "B",
+    None: "N",
+}
+
+
+def open_arduino(port):
+    import serial
+    ser = serial.Serial(port, 115200, timeout=0)
+    time.sleep(2)  # Port açılınca Uno kendini resetler, açılmasını bekle
+    print(f"Arduino bağlandı: {port}")
+    return ser
+
 
 def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--port", help="Arduino'nun seri portu, örn. COM3")
+    args = ap.parse_args()
+
+    arduino = open_arduino(args.port) if args.port else None
     landmarker = create_landmarker()
     model, gestures = load_classifier()
     cap = cv2.VideoCapture(0)
@@ -48,7 +73,9 @@ def main():
         stable = top if top is not None and n > WINDOW // 2 else None
         if stable != current:
             current = stable
-            print("Hareket:", current)  # 2. adımda burası Arduino'ya komut gönderecek
+            print("Hareket:", current)
+            if arduino:
+                arduino.write(COMMANDS[current].encode())  # sadece değişince gönder
 
         cv2.putText(frame, f"{label or '-'} ({conf:.2f})", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
         cv2.putText(frame, f"Kabul: {current or '-'}", (10, 65), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
@@ -56,6 +83,8 @@ def main():
         if cv2.waitKey(1) & 0xFF == ord("q"):
             break
 
+    if arduino:
+        arduino.close()
     cap.release()
     cv2.destroyAllWindows()
 
