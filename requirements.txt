@@ -1,0 +1,6 @@
+mediapipe
+opencv-python
+torch
+pandas
+numpy
+pyserial
